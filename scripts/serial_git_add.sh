@@ -30,6 +30,9 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 pushd "$SCRIPT_DIR/.."
 
+# Disable output buffering
+exec 2>&1
+
 DATA_DIR="$(pwd)/data"
 LOGS_DIR="$(pwd)/logs"
 mkdir -p "$LOGS_DIR"
@@ -52,9 +55,8 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-
 DRYRUN=${DRYRUN:-0}
-# remove leading dot from extension if present
+# Remove leading dot from extension if present
 EXT=${EXT#.}
 
 if [[ $DRYRUN -eq 1 ]]; then
@@ -62,7 +64,6 @@ if [[ $DRYRUN -eq 1 ]]; then
 else
     OUTPUT_LOG="$LOGS_DIR/output.log"
 fi
-
 
 # Create and modify .gitignore file
 if [[ ! -f .gitignore ]]; then
@@ -76,12 +77,15 @@ fi
 show_progress() {
     local progress=$1
     local total=$2
+    local elapsed_time=$3
+    local remaining_time=$4
+    local files_left=$5
     local percent=$((progress * 100 / total))
     local bar_length=50
     local filled_length=$((percent * bar_length / 100))
     local bar=$(printf "%-${filled_length}s" "#" | tr ' ' '#')
     local empty=$(printf "%-$((bar_length - filled_length))s" "-" | tr ' ' '-')
-    printf "\rProgress: [${bar}${empty}] ${percent}%%"
+    printf "\033[1A\033[KProgress: [${bar}${empty}] ${percent}%% - Estimated time remaining: %s - Files left: %d" "$remaining_time" "$files_left"
 }
 
 # Function to format time in hours, minutes, and seconds
@@ -102,6 +106,7 @@ if [[ $DRYRUN -eq 1 ]]; then
     echo "[DRYRUN] total_files: $total_files"
 fi
 start_time=$(date +%s)
+echo  # Print a blank line for the progress bar to update
 
 # Loop through each file and perform git actions
 for ((i=0; i<total_files; i++)); do
@@ -114,10 +119,6 @@ for ((i=0; i<total_files; i++)); do
     fi
     echo -e "\n$filepath added" >> $OUTPUT_LOG 2>&1
 
-    # Update progress bar
-    show_progress $((i + 1)) $total_files
-    sleep .5
-
     # Estimate time remaining
     current_time=$(date +%s)
     elapsed_time=$((current_time - start_time))
@@ -125,9 +126,13 @@ for ((i=0; i<total_files; i++)); do
     remaining_time=$((estimated_total_time - elapsed_time))
     formatted_remaining_time=$(format_time $remaining_time)
     files_left=$((total_files - i - 1))
-    printf " - Estimated time remaining: %s - Files left: %d" $formatted_remaining_time $files_left | tee -a $OUTPUT_LOG
+
+    # Update progress bar
+    show_progress $((i + 1)) $total_files $elapsed_time "$formatted_remaining_time" $files_left
+    sleep .5
 done
 
+printf "\n"
 
 echo -e "\nAll files processed."
 
